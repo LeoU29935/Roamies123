@@ -433,10 +433,12 @@ export async function addCommitment(text, dueMs, kind = 'commitment', repeat = n
 
 /** repeat: a new rule, or null to stop repeating (it then stays as a one-off at its current time). Marking a
  *  repeating commitment done moves it on to its next time instead of closing it (`advanced` is set on the result). */
-export async function updateCommitment(id, { status, dueMs, repeat, now = Date.now() }) {
+export async function updateCommitment(id, { status, dueMs, repeat, keepSeries = false, now = Date.now() }) {
   const c = loadMemory().commitments.find((x) => x.id === id);
   if (!c) return null;
-  if (dueMs !== undefined) { c.due = dueMs; c.remindedAt = null; if (c.repeat) c.repeatFrom = dueMs; }
+  // A new time moves a repeating series to it, unless keepSeries: then only this time moves (a snooze), and after it
+  // goes off the series carries on at its usual times.
+  if (dueMs !== undefined) { c.due = dueMs; c.remindedAt = null; if (c.repeat && !keepSeries) c.repeatFrom = dueMs; }
   if (repeat !== undefined) {
     const r = repeat ? parseRepeat(repeat) : null;
     if (r && c.due != null) { c.repeat = r.spec; c.repeatFrom = c.due; } else { delete c.repeat; delete c.repeatFrom; }

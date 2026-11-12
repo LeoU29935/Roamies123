@@ -122,6 +122,22 @@ const local = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${d.g
   const closed = await S.updateCommitment(g.id, { status: 'done' });
   assert.ok(!closed.advanced && closed.status === 'done', 'a one-off closes');
 
+  // Snoozed (keepSeries): only this time moves; after it goes off, the series is back at its own time.
+  {
+    const d9 = at(2026, 12, 1, 9), r2 = await S.addCommitment('Vitamins', d9, 'reminder', 'daily');
+    await S.takeDueReminders(d9 + 1000); // fired: now due tomorrow at 9
+    await S.updateCommitment(r2.id, { status: 'open', dueMs: d9 + 10 * 60e3, keepSeries: true }); // "snooze 10 minutes"
+    let x = S.openCommitments().find((q) => q.id === r2.id);
+    assert.equal(local(x.due), '2026-12-1 9:10', 'snoozed to 9:10');
+    await S.takeDueReminders(d9 + 11 * 60e3);
+    x = S.openCommitments().find((q) => q.id === r2.id);
+    assert.equal(local(x.due), '2026-12-2 9:00', 'then back to 9:00 tomorrow, not 9:10');
+    // Without keepSeries, a new time moves the whole series (that's "move it to 10 every day").
+    await S.updateCommitment(r2.id, { dueMs: at(2026, 12, 2, 10) });
+    await S.takeDueReminders(at(2026, 12, 2, 10, 1));
+    assert.equal(local(S.openCommitments().find((q) => q.id === r2.id).due), '2026-12-3 10:00');
+    await S.updateCommitment(r2.id, { status: 'dropped' });
+  }
   // "Weekdays at 9" asked for on a Saturday starts on Monday.
   const w = await S.addCommitment('Stand-up', at(2026, 11, 14), 'reminder', 'weekdays');
   assert.equal(local(w.due), '2026-11-16 9:00');
