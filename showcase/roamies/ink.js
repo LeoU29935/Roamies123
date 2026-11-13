@@ -740,6 +740,88 @@
       await card(m, w, h, function (b, l, t, x, y, age) { b.fillStyle = colorOf(this, this.color); b.fillRect(x + 8, y + 8, w - 16, 3); wrapped(b, rows, x + 14, y + 32, 19, `500 13px ${MONO}`, TEXT, age / (0.3 + m.text.length * 0.025)); }, { bar: false, edge: true });
       sfx('page');
     },
+    // A mind map: the topic on the left, its branches beside it, each branch's points behind a +. A click on a branch
+    // opens or closes its points (the map slides to make room); a click on the topic opens or closes them all. The
+    // card is sized for everything open, so nothing moves out from under the pointer.
+    async mindmap(m) {
+      const ROOTF = `800 16px ${DOTO}`, RW = 150, BW = 160, LW = 180, GAP = 36, PX = 16;
+      const rootRows = wrapRows(m.title || 'topic', RW - 20, ROOTF), rootH = rootRows.length * 20 + 18;
+      const B = (m.branches ?? []).slice(0, 8).map((q) => {
+        const rows = wrapRows(q.text, BW - 40, BODY), leaves = (q.items ?? []).slice(0, 6).map((it) => { const r = wrapRows(it, LW - 20, SMALL); return { rows: r, h: r.length * 14 + 12 }; });
+        return { rows, h: rows.length * 17 + 14, leaves, tone: q.tone, op: 0, y: null, ly: leaves.map(() => null) };
+      });
+      const leafH = (q) => q.leaves.reduce((s, L) => s + L.h + 6, -6);
+      const slot = (q, open) => Math.max(q.h, open && q.leaves.length ? leafH(q) : 0) + 12;
+      const anyLeaves = B.some((q) => q.leaves.length);
+      const w = PX * 2 + RW + GAP + BW + (anyLeaves ? GAP + LW : 0), CH = Math.max(rootH + 20, B.reduce((s, q) => s + slot(q, true), 0) + 16), h = 26 + CH;
+      const open = new Set(), RX = PX, BX = PX + RW + GAP, LX = BX + BW + GAP;
+      let hits = [], last = 0, moving = false;
+      // Where everything should be for what's open now (y of each box's centre, from the content's top).
+      const targets = () => {
+        const total = B.reduce((s, q, i) => s + slot(q, open.has(i)), 0);
+        let yy = (CH - total) / 2;
+        return B.map((q, i) => {
+          const sh = slot(q, open.has(i)), cy = yy + sh / 2;
+          let ly = cy - leafH(q) / 2;
+          const leaves = q.leaves.map((L) => { const c = open.has(i) ? ly + L.h / 2 : cy; ly += L.h + 6; return c; });
+          yy += sh;
+          return { cy, leaves };
+        });
+      };
+      const curve = (b, x0, y0, x1, y1) => { const mx = (x0 + x1) / 2; b.beginPath(); b.moveTo(x0, y0); b.bezierCurveTo(mx, y0, mx, y1, x1, y1); b.stroke(); };
+      const c = await card(m, w, h, function (b, l, t, x, y, age) {
+        const dt = clamp(t - (last || t), 0, 0.1); last = t;
+        const T = targets(), k = 1 - Math.exp(-dt * 12);
+        moving = false;
+        B.forEach((q, i) => {
+          q.y = q.y == null ? T[i].cy : q.y + (T[i].cy - q.y) * k;
+          q.op += ((open.has(i) ? 1 : 0) - q.op) * k;
+          q.ly = q.ly.map((v, j) => (v == null ? T[i].leaves[j] : v + (T[i].leaves[j] - v) * k));
+          if (Math.abs(q.y - T[i].cy) > 0.3 || Math.abs(q.op - (open.has(i) ? 1 : 0)) > 0.01) moving = true;
+        });
+        hits = [];
+        const ry = y + CH / 2, grow = clamp(age / 0.5, 0, 1);
+        // the topic
+        const rpath = steppedPath(x + RX, ry - rootH / 2, RW, rootH, P);
+        b.fillStyle = rgba(ACC, 0.08); b.fill(rpath); b.strokeStyle = this.hoverId === 'root' ? HOT : ACC; b.lineWidth = 2; b.stroke(rpath);
+        rootRows.forEach((r, k2) => typed(b, r, x + RX + RW / 2, ry - rootH / 2 + 22 + k2 * 20, ROOTF, TEXT, age / 0.4, { anchor: 'middle' }));
+        hits.push({ rect: [x + RX, ry - rootH / 2, RW, rootH], kind: 'pick', id: 'root' });
+        B.forEach((q, i) => {
+          const a = clamp((age - 0.25 - i * 0.12) / 0.35, 0, 1);
+          if (a <= 0) return;
+          const by = y + q.y, col = tone(q.tone) ?? this.color, hot = this.hoverId === `b${i}`;
+          b.globalAlpha *= a; b.strokeStyle = rgba(col, 0.7); b.lineWidth = 2;
+          curve(b, x + RX + RW, ry, x + BX, by);
+          const bp = steppedPath(x + BX, by - q.h / 2, BW, q.h, P);
+          b.fillStyle = rgba(col, hot ? 0.14 : 0.06); b.fill(bp); b.strokeStyle = hot ? HOT : col; b.stroke(bp);
+          q.rows.forEach((r, k2) => typed(b, r, x + BX + 12, by - q.h / 2 + 19 + k2 * 17, BODY, TEXT, a));
+          if (q.leaves.length) {
+            // + or − in the box's right edge
+            const px = x + BX + BW - 12, py = by; b.fillStyle = hot ? HOT : col;
+            b.fillRect(px - 4, py - 1, 9, 2); if (!open.has(i)) b.fillRect(px - 1, py - 4, 2, 9);
+            hits.push({ rect: [x + BX, by - q.h / 2, BW, q.h], kind: 'pick', id: `b${i}` });
+          }
+          if (q.op > 0.02) {
+            b.globalAlpha *= q.op;
+            q.leaves.forEach((L, j) => {
+              const ly = y + q.ly[j];
+              b.strokeStyle = rgba(col, 0.5); b.lineWidth = 1.5; curve(b, x + BX + BW, by, x + LX, ly);
+              b.fillStyle = rgba(col, 0.9); b.fillRect(x + LX, ly - 2, 4, 4);
+              L.rows.forEach((r, k2) => { b.font = SMALL; b.fillStyle = TEXT; b.textAlign = 'left'; b.fillText(r, x + LX + 10, ly - L.h / 2 + 15 + k2 * 14); });
+            });
+            b.globalAlpha /= q.op;
+          }
+          b.globalAlpha /= a;
+        });
+        if (moving || grow < 1) touch(0.15);
+      }, { title: 'mind map', live: () => moving });
+      c.more = () => hits.map((q) => ({ ...q, part: m.part }));
+      c.pick = (id) => {
+        if (id === 'root') { const all = open.size < B.filter((q) => q.leaves.length).length; open.clear(); if (all) B.forEach((q, i) => q.leaves.length && open.add(i)); }
+        else { const i = Number(id.slice(1)); if (open.has(i)) open.delete(i); else open.add(i); }
+        sfx('pip'); moving = true; touch(1);
+      };
+    },
     async list(m) {
       const TITLE = `800 20px ${DOTO}`;
       // The whole title and every point in full: 280 wide, wider while a point runs past three lines or it's too tall.
