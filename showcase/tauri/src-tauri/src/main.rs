@@ -678,6 +678,25 @@ fn tray_image() -> tauri::image::Image<'static> {
 // Wide enough for the sidebar beside a page as roomy as the old one-column panel.
 const PANEL_W: f64 = 560.0;
 const PANEL_H: f64 = 560.0;
+// The dashboard page (panel.js) needs room for its grid: the panel is this size while it's open.
+const PANEL_DASH_W: f64 = 960.0;
+const PANEL_DASH_H: f64 = 660.0;
+static PANEL_WIDE: AtomicBool = AtomicBool::new(false);
+
+/// The panel's page asks for the wide size while the dashboard is open, and the usual one otherwise. Placed again by
+/// the icon, so it stays inside the screen.
+#[tauri::command]
+fn panel_wide(app: AppHandle, on: bool) {
+    if PANEL_WIDE.swap(on, Ordering::SeqCst) == on {
+        return;
+    }
+    let Some(w) = app.get_webview_window(PANEL_LABEL) else { return };
+    if !w.is_visible().unwrap_or(false) {
+        return;
+    }
+    let rect = app.tray_by_id("roamies").and_then(|t| t.rect().ok().flatten());
+    PANEL_FROM_BOTTOM.store(place_panel(&app, &w, rect), Ordering::SeqCst);
+}
 
 /// Plays the panel's close animation, then hides it (unless it was opened again meanwhile). why: what closed it,
 /// for the log (blur, icon, esc, panel).
@@ -800,8 +819,9 @@ fn place_panel(app: &AppHandle, w: &WebviewWindow, rect: Option<tauri::Rect>) ->
     let (ax, ay, aw, ah) = (wa.position.x as f64, wa.position.y as f64, wa.size.width as f64, wa.size.height as f64);
     let gap = 6.0 * s;
     let margin = 8.0 * s;
-    let h = (PANEL_H * s).min(ah - 2.0 * margin);
-    let pw = PANEL_W * s;
+    let (bw, bh) = if PANEL_WIDE.load(Ordering::SeqCst) { (PANEL_DASH_W, PANEL_DASH_H) } else { (PANEL_W, PANEL_H) };
+    let h = (bh * s).min(ah - 2.0 * margin);
+    let pw = (bw * s).min(aw - 2.0 * margin);
     set_panel_size(w, pw, h, s);
     let (cx, y, above) = match icon {
         Some((x, y, iw, ih)) if y + ih / 2.0 < ay + ah / 2.0 => (x + iw / 2.0, (y + ih).max(ay) + gap, false),
@@ -1674,7 +1694,7 @@ fn main() {
         .manage(TalkChord(Mutex::new(vec!["control".into(), "option".into()])))
         .manage(VoiceModel(Mutex::new(None)))
         .manage(PermGuide(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![buddy, ink_wait, set_hot, set_hit_rects, sidecar_send, set_typing, perm_status, perm_request, perm_guide, screen_check, open_settings, onboarding_finish, guide_close, panel_hide, esc_watch, relaunch, focus_guide, guide_aside, drag_window])
+        .invoke_handler(tauri::generate_handler![buddy, ink_wait, set_hot, set_hit_rects, sidecar_send, set_typing, perm_status, perm_request, perm_guide, screen_check, open_settings, onboarding_finish, guide_close, panel_hide, panel_wide, esc_watch, relaunch, focus_guide, guide_aside, drag_window])
         .on_menu_event(|app, e| match e.id.as_ref() {
             "quit" => app.exit(0),
             "restart" => spawn_sidecar(app),

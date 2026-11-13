@@ -228,7 +228,7 @@ export function sideSearchFor(route) {
 // Every request and redirect hop of web_fetch goes through safety.mjs, by name and by the addresses it resolves to.
 export const guardFetch = async (url) => { const v = await checkFetch(url); return v.level === BLOCK ? `Blocked for safety: ${v.reason}` : null; };
 
-export function createTools({ allowActions, ui, ask, openUrl, onCommitments, firedReminders = () => [], focus = null, showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Roamies isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null }) {
+export function createTools({ allowActions, ui, ask, openUrl, onCommitments, dashboard = null, firedReminders = () => [], focus = null, showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Roamies isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null }) {
   // Relative paths (and run_command) start in workdir: the home folder for the chat, its own folder for an agent.
   const at = (p) => { const s = String(p ?? ''); return /^~(?=$|\/|\\)/.test(s) || path.isAbsolute(s) || /^[a-z]:[\\/]/i.test(s) ? s : path.join(workdir, s); };
   const where = workdir === HOME ? "the user's home folder" : `its working folder (${workdir})`;
@@ -1002,6 +1002,17 @@ A drawing stays until the user clears it or the window changes; your next drawin
       parameters: z.object({}),
       execute: async () => { showList(); return 'The list is on screen.'; },
     },
+    ...(dashboard ? [{
+      name: 'arrange_dashboard',
+      description: `Lay out ${userName}'s dashboard (the first page of the Roamies panel) when they ask to change it: a 6-column grid of widgets, rows going down. kind: 'todo' (their reminders and commitments, ticked off there), 'notes' (text they type there; text sets it), 'custom' (a value with a label and a little text you keep up to date, e.g. a streak, a count or a goal; how: the steps you'd take to find the current value, so a Refresh button there can ask you). x 0-5 and w 1-6 are columns, y and h are rows (h 2 is about a sticky note, 4 a tall list). "On the left" is x 0, "on the right" ends at column 6, "in the middle" is centred. Give the whole layout: widgets you leave out are removed; pass a widget's id to keep it and its contents. The current layout is in the live state.`,
+      parameters: z.object({ widgets: z.array(z.object({ id: z.string().max(6).optional(), kind: z.enum(['todo', 'notes', 'custom']), title: z.string().max(40).optional(), x: z.number().optional(), y: z.number().optional(), w: z.number().optional(), h: z.number().optional(), text: z.string().max(4000).optional(), value: z.string().max(24).optional(), label: z.string().max(40).optional(), how: z.string().max(300).optional() })).max(12) }),
+      execute: async ({ widgets }) => dashboard.arrange(widgets),
+    }, {
+      name: 'update_widget',
+      description: "Change what one dashboard widget shows, by id (see the live state): a custom widget's value, label, text or how (after you've found the current value), a notes widget's text, or any widget's title. Not for moving or resizing: that's arrange_dashboard.",
+      parameters: z.object({ id: z.string().max(6), title: z.string().max(40).optional(), text: z.string().max(4000).optional(), value: z.string().max(24).optional(), label: z.string().max(40).optional(), how: z.string().max(300).optional() }),
+      execute: async ({ id, ...patch }) => dashboard.update(id, patch),
+    }] : []),
     {
       name: 'snooze_reminder',
       description: `Snooze a reminder or commitment that just went off, when ${userName} says "snooze", "snooze 10 minutes", "remind me again in an hour", "move it to tomorrow" or "later tonight". until: "in 10m" / "10 minutes" / "1h", "tomorrow" (same time of day, next day), "tonight" (8 pm), or a local time YYYY-MM-DDTHH:mm; "snooze" alone means 10 minutes. Leave id out for the one that just went off; give it when they name another. This brings back a plain reminder that already cleared itself.`,

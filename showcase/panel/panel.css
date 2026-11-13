@@ -318,3 +318,31 @@ html, body { height: 100%; background: transparent; }
   .frame.opening, .frame.shutting, .pane.enter > *, .pane.enter .list > li, .navi.ping, .item.leaving, .note, .arm[aria-pressed="true"] > .yes { animation: none; }
   .navi, .arm > span, .tab, .ibtn, .ibtn > span { transition: none; }
 }
+
+/* The dashboard: widgets on a 6-column grid (panel.js dashboardPage), dragged by their bar, resized by their corner. */
+.dash-head { display: flex; flex-direction: row; align-items: center; gap: 12px; }
+.dash-head .usage { flex: 1; margin: 0; }
+.dash { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: 64px; gap: 8px; padding-bottom: 12px; }
+.widget { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line-hi); }
+.widget.dragging { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 18px rgba(120, 255, 226, 0.25); z-index: 2; opacity: 0.92; }
+.wbar { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px 0 10px; border-bottom: 1px dashed var(--line); cursor: grab; user-select: none; }
+.widget.dragging .wbar { cursor: grabbing; }
+.wtitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--t-small)/1 var(--display); letter-spacing: 0.04em; color: var(--accent); text-transform: lowercase; }
+.wbody { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; font-size: var(--t-body); }
+.wgrip { position: absolute; right: 1px; bottom: 1px; width: 14px; height: 14px; cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 0 55%, var(--line-hi) 55% 62%, transparent 62% 72%, var(--line-hi) 72% 79%, transparent 79%); }
+.wgrip:hover { background: linear-gradient(135deg, transparent 0 55%, var(--accent) 55% 62%, transparent 62% 72%, var(--accent) 72% 79%, transparent 79%); }
+.wempty { margin: 0; color: var(--ink-2); font-size: var(--t-small); }
+.wtodo { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.wtodo li { display: flex; gap: 8px; align-items: flex-start; }
+.wtodo .text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.wtodo small { color: var(--ink-2); font-size: var(--t-small); }
+.wtodo small.late { color: #ff8a7a; }
+.wtick { flex: none; width: 13px; height: 13px; margin-top: 2px; padding: 0; background: transparent; border: 1.5px solid var(--accent); border-radius: 50%; cursor: pointer; }
+.wtick:hover { background: rgba(120, 255, 226, 0.25); }
+.wnotes { width: 100%; height: 100%; resize: none; box-sizing: border-box; background: transparent; border: none; outline: none; color: var(--ink); font: var(--t-body)/1.5 var(--mono, ui-monospace, monospace); }
+.wcustom { display: flex; flex-direction: column; gap: 4px; }
+.wvalue { margin: 0; font: 800 34px/1 var(--display); color: var(--accent); }
+.wlabel { font: 400 var(--t-body) var(--display); color: var(--ink-2); }
+.wtext { margin: 0; color: var(--ink); }
+.wfoot { margin: auto 0 0; display: flex; gap: 10px; align-items: baseline; color: var(--ink-2); }

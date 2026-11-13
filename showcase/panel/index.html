@@ -32,7 +32,8 @@
   <!-- One page per concern: what's going on, what it remembers, then a page for each group of settings. -->
   <nav class="side" aria-label="Panel">
     <ul class="nav">
-      <li><button class="px navi" type="button" id="nav-home" data-page="home" aria-controls="pane-home" aria-current="page">Home<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-dashboard" data-page="dashboard" aria-controls="pane-dashboard" aria-current="page">Dashboard<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-home" data-page="home" aria-controls="pane-home">Home<span class="dot" aria-hidden="true"></span></button></li>
       <li><button class="px navi" type="button" id="nav-memory" data-page="memory" aria-controls="pane-memory">Memory<span class="dot" aria-hidden="true"></span></button></li>
     </ul>
     <p class="side-label" id="side-settings">Settings</p>
@@ -46,7 +47,8 @@
     </ul>
   </nav>
   <main class="body">
-    <section class="pane" id="pane-home" aria-labelledby="nav-home"></section>
+    <section class="pane" id="pane-dashboard" aria-labelledby="nav-dashboard"></section>
+    <section class="pane" id="pane-home" aria-labelledby="nav-home" hidden></section>
     <section class="pane" id="pane-memory" aria-labelledby="nav-memory" hidden></section>
     <section class="pane" id="pane-model" aria-labelledby="nav-model" hidden></section>
     <section class="pane" id="pane-appearance" aria-labelledby="nav-appearance" hidden></section>

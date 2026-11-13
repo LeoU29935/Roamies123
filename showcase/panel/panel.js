@@ -13,7 +13,7 @@
   // An action from the menu's list. away: it happens on the desktop, so the panel steps aside first.
   const act = (id, away = false) => { if (away) hide(); send({ type: 'menu', id }); };
 
-  let state = null, tab = 'home', deferred = false;
+  let state = null, tab = 'dashboard', deferred = false;
   // What's open in the panel itself: a key field (provider id, 'fish' or 'gemini'), the row action waiting for its
   // Confirm, each long list's page (pg) and how many rows fit on one (per, measured), Memory's tab and its search.
   const ui = { key: null, kind: {}, arm: null, pg: {}, per: {}, mtab: 'facts', q: '', bindShown: new Set() };
@@ -707,13 +707,95 @@
   }
 
   // ---------------------------------------------------------------- render
-  const PANES = { home, memory, model: modelPage, appearance: appearancePage, voice: voicePage, behavior: behaviorPage, about: aboutPage, whatsnew: whatsNewPage };
+  // ---------------------------------------------------------------- the dashboard (the sidecar's dashboard.mjs)
+  // Widgets on a 6-column grid: dragged by their title bar, resized by their corner, in whole cells. Ask the Roamie
+  // to arrange them. The window is wider while this page is open (main.rs panel_wide).
+  const DASH_ROW = 64, DASH_GAP = 8;
+  let dashDrag = null;
+  const agoShort = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  const noteTimers = new Map();
+  const saveNote = (id, text) => { clearTimeout(noteTimers.get(id)); noteTimers.delete(id); act(`dash:note:${id}:${encodeURIComponent(text)}`); };
+  function widgetBody(w) {
+    if (w.kind === 'todo') {
+      const items = state.commitments ?? [];
+      return el('div', { className: 'wbody' }, items.length
+        ? el('ul', { className: 'wtodo' }, items.slice(0, 30).map((x) => el('li', {},
+          el('button', { className: 'wtick', type: 'button', 'aria-label': `Done: ${x.text}`, on: { click: () => act(`done:${x.id}`) } }),
+          el('span', { className: 'text', title: x.text }, x.text, x.when ? el('small', { className: x.overdue ? 'late' : '', textContent: x.overdue ? `Overdue · ${x.when}` : x.when }) : null))))
+        : el('p', { className: 'wempty', textContent: 'Nothing on your list. Tell me what you\'ll do and it shows up here.' }));
+    }
+    if (w.kind === 'notes') {
+      const ta = el('textarea', { className: 'wnotes', 'aria-label': w.title, placeholder: 'Type a note…', 'data-k': `note-${w.id}` });
+      ta.value = w.text ?? '';
+      ta.addEventListener('input', () => { clearTimeout(noteTimers.get(w.id)); noteTimers.set(w.id, setTimeout(() => saveNote(w.id, ta.value), 700)); });
+      ta.addEventListener('blur', () => { if (noteTimers.has(w.id)) saveNote(w.id, ta.value); });
+      return el('div', { className: 'wbody' }, ta);
+    }
+    return el('div', { className: 'wbody wcustom' },
+      w.value ? el('p', { className: 'wvalue' }, w.value, w.label ? el('span', { className: 'wlabel', textContent: ` ${w.label}` }) : null) : el('p', { className: 'wempty', textContent: w.how ? 'Not checked yet.' : 'Ask me to fill this in.' }),
+      w.text ? el('p', { className: 'wtext', textContent: w.text }) : null,
+      el('p', { className: 'wfoot' }, w.updatedAt ? el('small', { textContent: `Updated ${agoShort(w.updatedAt)}` }) : null,
+        w.how ? link('Refresh', () => { act(`dash:refresh:${w.id}`); note(`Asking ${state.name} to check ${w.title}…`); }, { k: `refresh-${w.id}`, aria: `Refresh ${w.title}` }) : null));
+  }
+  function dashboardPage() {
+    const d = state.dashboard ?? { widgets: [] };
+    const grid = el('div', { className: 'dash', id: 'dash', role: 'list', 'aria-label': 'Dashboard' },
+      d.widgets.map((w) => {
+        const node = el('div', { className: `widget w-${w.kind}`, role: 'listitem', 'data-id': w.id, style: `grid-column: ${w.x + 1} / span ${w.w}; grid-row: ${w.y + 1} / span ${w.h};` },
+          el('div', { className: 'wbar', title: 'Drag to move' },
+            el('span', { className: 'wtitle', textContent: w.title }),
+            armed('×', 'Remove', `rm-${w.id}`, `dash:remove:${w.id}`, `Remove ${w.title}`)),
+          widgetBody(w),
+          el('span', { className: 'wgrip', title: 'Drag to resize', 'aria-hidden': 'true' }));
+        return node;
+      }));
+    return [
+      el('div', { className: 'group dash-head' },
+        el('p', { className: 'usage', textContent: `Ask ${state.name} to arrange it: “to-dos on the left, notes on the right, my streak in the middle”.` }),
+        d.widgets.length ? null : el('p', { className: 'wempty', textContent: 'No widgets yet.' }),
+        armed('Reset', 'Confirm', 'dash-reset', 'dash:reset', 'Reset the dashboard')),
+      grid,
+    ];
+  }
+  // Moving and resizing, in whole grid cells; the change is sent when the pointer lets go.
+  document.addEventListener('pointerdown', (e) => {
+    const node = e.target.closest?.('.widget'), grid = node?.closest('#dash');
+    if (!node || !grid || e.button !== 0 || e.target.closest('button, textarea, a')) return;
+    const grip = e.target.closest('.wgrip'), bar = e.target.closest('.wbar');
+    if (!grip && !bar) return;
+    const w = state.dashboard.widgets.find((q) => q.id === node.dataset.id);
+    if (!w) return;
+    e.preventDefault();
+    const r = grid.getBoundingClientRect(), colW = (r.width - DASH_GAP * 5) / 6 + DASH_GAP, rowH = DASH_ROW + DASH_GAP;
+    dashDrag = { node, w, grip: !!grip, x0: e.clientX, y0: e.clientY, colW, rowH, at: { ...w } };
+    node.classList.add('dragging'); node.setPointerCapture?.(e.pointerId);
+  }, true);
+  document.addEventListener('pointermove', (e) => {
+    const D = dashDrag;
+    if (!D) return;
+    const dc = Math.round((e.clientX - D.x0) / D.colW), dr = Math.round((e.clientY - D.y0) / D.rowH), w = D.w;
+    D.at = D.grip ? { ...w, w: Math.min(6 - w.x, Math.max(1, w.w + dc)), h: Math.min(8, Math.max(1, w.h + dr)) }
+      : { ...w, x: Math.min(6 - w.w, Math.max(0, w.x + dc)), y: Math.max(0, w.y + dr) };
+    D.node.style.gridColumn = `${D.at.x + 1} / span ${D.at.w}`; D.node.style.gridRow = `${D.at.y + 1} / span ${D.at.h}`;
+  });
+  document.addEventListener('pointerup', () => {
+    const D = dashDrag;
+    if (!D) return;
+    dashDrag = null; D.node.classList.remove('dragging');
+    const w = D.w, a = D.at;
+    if (D.grip && (a.w !== w.w || a.h !== w.h)) act(`dash:size:${w.id}:${a.w}:${a.h}`);
+    else if (!D.grip && (a.x !== w.x || a.y !== w.y)) act(`dash:move:${w.id}:${a.x}:${a.y}`);
+    else render();
+  });
+
+  const PANES = { dashboard: dashboardPage, home, memory, model: modelPage, appearance: appearancePage, voice: voicePage, behavior: behaviorPage, about: aboutPage, whatsnew: whatsNewPage };
   // focusKey: what to focus after (a data-k, or an element id); otherwise whatever had focus keeps it.
   function render(focusKey, animate = false) {
     if (!state) return;
     const active = document.activeElement;
     // Never rebuild under someone typing a key: catch up when they leave the field.
-    if (!focusKey && !animate && active?.tagName === 'INPUT' && active.closest('.pane')) { deferred = true; return; }
+    if (!focusKey && !animate && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA') && active.closest('.pane')) { deferred = true; return; }
+    if (dashDrag) { deferred = true; return; }
     deferred = false;
     const keep = focusKey ?? active?.dataset?.k ?? (active?.id?.startsWith('key-') ? active.id : null);
     hideTip();
@@ -738,7 +820,7 @@
     }
     if (keep) (document.querySelector(`.pane [data-k="${CSS.escape(keep)}"]`) ?? document.getElementById(keep))?.focus();
   }
-  document.addEventListener('focusout', (e) => { if (deferred && e.target.tagName === 'INPUT') setTimeout(() => deferred && render(), 0); });
+  document.addEventListener('focusout', (e) => { if (deferred && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) setTimeout(() => deferred && render(), 0); });
   // The window changes size with the screen it opens on: as many rows as fit there.
   let resizeTimer = 0;
   addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => state && render(), 120); });
@@ -758,7 +840,8 @@
   const TABS = Object.keys(PANES);
   const navi = (t) => $(`nav-${t}`);
   function show(name, focus = false) {
-    if (!PANES[name]) name = name === 'settings' ? 'model' : 'home';
+    if (!PANES[name]) name = name === 'settings' ? 'model' : 'dashboard';
+    invoke('panel_wide', { on: name === 'dashboard' }).catch(() => {});
     const changed = name !== tab;
     if (!changed && !focus) return;
     tab = name;
@@ -856,6 +939,7 @@
     }
   };
   send({ type: 'panel_open' });
+  invoke('panel_wide', { on: tab === 'dashboard' }).catch(() => {});
   // The first show: the window was made hidden, so the switch-on is played here (main.rs's call may land
   // before this script has run).
   window.__panelOpen();
@@ -902,6 +986,11 @@
       fishModels: [{ id: 'drama-3', name: 'Drama 3', perM: 50, promo: { perM: 10, until: '2026-12-01T08:00:00Z' } }, { id: 's2.1-pro', name: 'S2.1 Pro', perM: 15 }],
       voice: { on: true, keys: '⌃⌥', ready: true, mac: true, mute: true, wakeWord: false, wakeClaps: false, wakeName: 'Roamies', download: null }, askKeys: '⌥⌘',
       sound: true, actions: false, login: { on: true },
+      dashboard: { version: 1, widgets: [
+        { id: 'w1', kind: 'todo', title: 'To do', x: 0, y: 0, w: 2, h: 5 },
+        { id: 'w3', kind: 'custom', title: 'Clozemaster streak', x: 2, y: 0, w: 2, h: 2, value: '45', label: 'days', text: 'Best so far: 61 days.', how: 'open clozemaster.com and read the streak', updatedAt: at - 3 * 3600e3 },
+        { id: 'w2', kind: 'notes', title: 'Notes', x: 4, y: 0, w: 2, h: 5, text: 'Launch checklist\n- record the demo\n- write the changelog' },
+      ] },
       update: { available: new URLSearchParams(location.search).has('update') && new URLSearchParams(location.search).get('update') !== 'failed' ? '0.9.1' : null, installing: false, checking: false, result: null },
       intro: false,
     };
@@ -941,6 +1030,12 @@
       if (args.msg?.type === 'copy_problem') setTimeout(() => window.__panel({ kind: 'copied', which: 'problem', ok: q.get('copy') !== 'fail' }), 150);
       const id = args.msg?.id ?? '';
       if (id.startsWith('size:')) { s.size = id.slice(5); setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
+      // The dashboard: moves and resizes come back as new state (the sidecar also makes room for the others).
+      if (id.startsWith('dash:move:') || id.startsWith('dash:size:')) {
+        const [, what, wid, a, b] = id.split(':'), w = s.dashboard.widgets.find((q) => q.id === wid);
+        if (w) Object.assign(w, what === 'move' ? { x: +a, y: +b } : { w: +a, h: +b });
+        setTimeout(() => window.__panel({ kind: 'state', state: s }), 60);
+      }
       if (id.startsWith('tts:')) { s.tts = id.slice(4); s.studio = s.tts === 'voicestudio' ? STUDIO[q.get('studio')] ?? STUDIO.on : null; setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
       if (id.startsWith('studiovoice:') && s.studio) { s.studio.voice = id.slice(12) === 'default' ? null : id.slice(12); setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
       if (id.startsWith('look:')) { s.look = id.slice(5); s.name = s.looks.find(([v]) => v === s.look)?.[1] ?? s.name; setTimeout(() => window.__panel({ kind: 'state', state: s }), 120); }
