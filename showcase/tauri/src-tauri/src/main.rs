@@ -1607,6 +1607,8 @@ fn handle_sidecar(app: &AppHandle, msg: Value) {
                 to_voice(app, &json!({ "cmd": "sound", "on": sound }));
                 let wake = msg.get("wake").and_then(Value::as_bool).unwrap_or(false);
                 to_voice(app, &json!({ "cmd": "wake", "on": wake }));
+                let claps = msg.get("claps").and_then(Value::as_bool).unwrap_or(false);
+                to_voice(app, &json!({ "cmd": "claps", "on": claps }));
             } else {
                 stop_voice(app);
             }

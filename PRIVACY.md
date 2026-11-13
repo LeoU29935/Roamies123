@@ -49,6 +49,9 @@ Each provider's own privacy policy applies to what is sent to it.
   "Hey Roamies", and macOS shows its microphone dot the whole time. That audio is turned into text only on your Mac
   (it never starts on a Mac that would need Apple's servers). Nothing is kept or sent anywhere until you say the phrase;
   the log notes only when it heard speech and how close that came to the phrase, never what was said.
+- **Clap to wake (macOS, off by default):** the same open microphone, listening for two claps. The clap check only
+  measures how loud the sound is from moment to moment, on your Mac; nothing is kept or sent until you clap twice, and
+  the log notes only that it heard two claps.
 - The screen is captured only when Roamies answers something about your screen, or when you mark an area. On Linux
   with Wayland it's taken through your desktop's screenshot portal; the copy the portal saves is deleted right away.
 
