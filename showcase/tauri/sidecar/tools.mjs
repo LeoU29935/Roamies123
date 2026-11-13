@@ -12,7 +12,8 @@ import { ASK, BLOCK, checkDrawAction, checkFetch, checkOpen, checkRead, checkWri
 import { CARDS, DrawArgs, LIMITS, checkDraw, createParts, createPhotos, describeParts, faviconFor, pickTextMatch, quizNote, resolveTargets } from './draw.mjs';
 import { plain } from './intro.mjs';
 import { linuxSession, seesPointer } from './platform.mjs';
-import { addCommitment, forgetFact, parseDue, parseRepeat, repeatLabel, updateCommitment } from './store.mjs';
+import { addCommitment, forgetFact, getCommitment, parseDue, parseRepeat, repeatLabel, updateCommitment } from './store.mjs';
+import { snoozeTarget, snoozeUntil } from './snooze.mjs';
 
 const HOME = os.homedir();
 export const expand = (p) => path.resolve(String(p).replace(/^~(?=$|\/|\\)/, HOME));
@@ -227,7 +228,7 @@ export function sideSearchFor(route) {
 // Every request and redirect hop of web_fetch goes through safety.mjs, by name and by the addresses it resolves to.
 export const guardFetch = async (url) => { const v = await checkFetch(url); return v.level === BLOCK ? `Blocked for safety: ${v.reason}` : null; };
 
-export function createTools({ allowActions, ui, ask, openUrl, onCommitments, focus = null, showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Roamies isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null }) {
+export function createTools({ allowActions, ui, ask, openUrl, onCommitments, firedReminders = () => [], focus = null, showList, fmtWhen, commitmentsText, userName, onPlan = () => {}, speak = () => false, onHandoff = () => {}, watchClicks = () => {}, onInkGone = () => {}, askShell = async () => ({ ok: false, error: 'Roamies isn\'t running.' }), workdir = HOME, own = null, sideSearch = async () => null }) {
   // Relative paths (and run_command) start in workdir: the home folder for the chat, its own folder for an agent.
   const at = (p) => { const s = String(p ?? ''); return /^~(?=$|\/|\\)/.test(s) || path.isAbsolute(s) || /^[a-z]:[\\/]/i.test(s) ? s : path.join(workdir, s); };
   const where = workdir === HOME ? "the user's home folder" : `its working folder (${workdir})`;
@@ -1000,6 +1001,23 @@ A drawing stays until the user clears it or the window changes; your next drawin
       name: 'show_list', description: "Show the user their list on screen (reminders and commitments, Today and Later). Use when they ask to see their list, to-dos or reminders; then answer in a few words, don't read it all out.",
       parameters: z.object({}),
       execute: async () => { showList(); return 'The list is on screen.'; },
+    },
+    {
+      name: 'snooze_reminder',
+      description: `Snooze a reminder or commitment that just went off, when ${userName} says "snooze", "snooze 10 minutes", "remind me again in an hour", "move it to tomorrow" or "later tonight". until: "in 10m" / "10 minutes" / "1h", "tomorrow" (same time of day, next day), "tonight" (8 pm), or a local time YYYY-MM-DDTHH:mm; "snooze" alone means 10 minutes. Leave id out for the one that just went off; give it when they name another. This brings back a plain reminder that already cleared itself.`,
+      parameters: z.object({ until: z.string().max(40).optional(), id: z.string().optional() }),
+      execute: async ({ until = 'in 10m', id }) => {
+        const target = snoozeTarget(id, firedReminders());
+        if (!target) throw new Error('Nothing went off in the last 30 minutes. Call list_commitments and pass the id.');
+        const c = getCommitment(target);
+        if (!c) throw new Error(`No reminder with id ${target}. Call list_commitments to see the ids.`);
+        const ms = snoozeUntil(until, c.due);
+        if (ms === undefined) throw new Error(`Couldn't read "${until}" as a time ahead. Use "in 10m", "tomorrow", "tonight" or YYYY-MM-DDTHH:mm.`);
+        // keepSeries: a repeating one (where that's supported) moves only this time, not its whole series.
+        const u = await updateCommitment(target, { status: 'open', dueMs: ms, keepSeries: true });
+        onCommitments(u);
+        return `Snoozed "${u.text}" until ${fmtWhen(ms)}.`;
+      },
     },
     {
       name: 'list_commitments', description: "List the open commitments you're keeping track of.",

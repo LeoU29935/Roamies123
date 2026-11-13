@@ -618,6 +618,7 @@
         state.brief?.on && state.brief.canTodoist ? toggle('Include Todoist', 'I read your Todoist window (opening it if needed). Stay signed in.', state.brief.todoist, () => act('brieftodoist'), 'brieftodoist') : null,
         toggle('Allow file edits and commands', 'Change files and run commands', state.actions, () => act('actions'), 'actions'),
         state.voice ? toggle('Auto-listen', state.voice.on ? 'Mic opens when I ask you something.' : 'Needs Voice control on', state.voice.autoListen, () => act('autolisten'), 'autolisten') : null,
+        state.voice ? toggle('Listen after reminders', state.voice.on ? 'Mic opens after a reminder, so you can say “snooze 10 minutes”.' : 'Needs Voice control on', state.voice.snoozeListen, () => act('snoozelisten'), 'snoozelisten') : null,
         state.voice?.mac ? toggle('Wake word', state.voice.on ? `Say “Hey ${state.voice.wakeName || 'Roamies'}” to talk. Mic stays on.` : 'Needs Voice control on', state.voice.wakeWord, () => act('wakeword'), 'wakeword') : null,
         state.voice?.mac ? el('div', { className: 'setting' }, el('span', {}, 'Wake word name', el('small', { textContent: `Hey ${state.voice.wakeName || 'Roamies'}` })),
           link('Change', () => act('wakename'), { k: 'wakename', aria: 'Change the wake word name' })) : null,
