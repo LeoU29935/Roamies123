@@ -6,7 +6,8 @@
 // Modifier state is read with CGEventSource, which needs no Input Monitoring permission.
 // While ⌃⌥ is held, moving the cursor draws on the screen (ink.swift); the marked area goes out with what was said.
 // While listening, a small voice-bar pill rides beside the cursor (wave.swift) instead of a transcript bubble.
-// With the wake word on, it also listens quietly for "Hey Roamies" and starts a hands-free take on hearing it.
+// With the wake word on, it also listens quietly for "Hey Roamies" and starts a hands-free take on hearing it; with
+// clap to wake on, two claps do the same (clap.swift).
 import AVFoundation
 import AppKit
 import CoreAudio
@@ -516,7 +517,7 @@ enum WakeWord {
 }
 
 final class Voice {
-    // wake: listening quietly for "Hey Roamies" (no pill, nothing muted); hearing it turns into a hands-free take.
+    // wake: listening quietly for "Hey Roamies" or two claps (no pill, nothing muted); either turns into a hands-free take.
     enum Phase { case idle, wake, armed, holding, handsFree, finishing }
 
     private var phase = Phase.idle
@@ -536,8 +537,11 @@ final class Voice {
     private var configObserver: NSObjectProtocol?
     // Wake word: on in settings; held off while Roamies answers and speaks; resting just after a take.
     private var wakeOn = false
+    // Clap to wake: two claps start a take, like the phrase. Either one keeps the quiet listening on.
+    private var clapsOn = false
+    private var listensForWake: Bool { wakeOn || clapsOn }
     var wakeHold = false {
-        didSet { if wakeOn && wakeHold != oldValue { wakeLog(wakeHold ? "paused while Roamies answers" : "resumed") } }
+        didSet { if listensForWake && wakeHold != oldValue { wakeLog(wakeHold ? "paused while Roamies answers" : "resumed") } }
     }
     private var wakeLoud = 0.0, wakeLevelAt = 0.0 // seconds loud enough to be speech in this wake window
     private var wakeCooldownUntil = 0.0, wakeRetryAt = 0.0, wakeAt = 0.0
@@ -650,7 +654,7 @@ final class Voice {
             else if wakeAllowed(now) { startWake(now) }
         case .wake:
             if chord && !prevChord && !blocked { stopWake(); arm(now); return }
-            if !wakeOn || wakeHold { stopWake(); return }
+            if !listensForWake || wakeHold { stopWake(); return }
             let paused = !wakeText.isEmpty && now - heardAt > Self.wakePause && now - voiceAt > Self.wakePause / 2
             // The 30 s refresh waits for a quiet moment, so it can't split "Hey" from "Roamies".
             let quiet = now - voiceAt > Self.wakePause / 2 && now - heardAt > Self.wakePause
@@ -809,12 +813,19 @@ final class Voice {
         guard on != wakeOn else { return }
         wakeOn = on
         log("wake word \(on ? "on" : "off")")
-        if !on { stopWake() }
+        if !on && !clapsOn { stopWake() }
+    }
+
+    func setClaps(_ on: Bool) {
+        guard on != clapsOn else { return }
+        clapsOn = on
+        log("clap to wake \(on ? "on" : "off")")
+        if !on && !wakeOn { stopWake() }
     }
 
     // Never asks for permission: wake listening starts only once talking has been allowed.
     private func wakeAllowed(_ now: Double) -> Bool {
-        wakeOn && !wakeHold && !dryRun && now >= wakeCooldownUntil && now >= wakeRetryAt && authorized
+        listensForWake && !wakeHold && !dryRun && now >= wakeCooldownUntil && now >= wakeRetryAt && authorized
     }
 
     private func startWake(_ now: Double) {
@@ -839,15 +850,33 @@ final class Voice {
     // A fresh recogniser on the open mic: after a pause with no phrase (so it must start what's said next), or every 30 s.
     private func recycleWake(_ now: Double) {
         logNearMiss()
+        guard freshRecognizer() else { stopWake(); wakeRetryAt = now + 30; return }
+        wakeAt = now; heardAt = now; wakeText = ""
+    }
+
+    /// A new recogniser on the open mic, for the phase it's in now (on-device only while waiting for the wake word).
+    /// False if none could be made.
+    private func freshRecognizer() -> Bool {
         feed.set(nil)
         rec?.cancel(); rec = nil
-        guard let r = makeRecognizer() else { stopWake(); wakeRetryAt = now + 30; return }
+        guard let r = makeRecognizer() else { return false }
         rec = r; feed.set(r)
-        wakeAt = now; heardAt = now; wakeText = ""
+        return true
+    }
+
+    /// Wake listening becomes a hands-free take (the phrase was said, or two claps heard). rest: what was already said
+    /// after the phrase, the start of the request.
+    private func beginWokenTake(_ now: Double, rest: String) {
+        woke = true
+        phase = .handsFree
+        chordAt = now
+        best = rest
+        showListening("wake", now)
     }
 
     // Only how close it came, never what was said.
     private func logNearMiss() {
+        guard wakeOn else { wakeMiss = nil; wakeLoud = 0; return } // claps only: what the recogniser heard doesn't matter
         // How a window ended, never what was said: a near try, other words, or sound the recogniser made no words of.
         if let m = wakeMiss { wakeLog("missed (\(m))") }
         else if !wakeText.isEmpty { wakeLog("heard \(WakeWord.tokens(wakeText).count) words, not the phrase") }
@@ -859,16 +888,26 @@ final class Voice {
         guard text != wakeText else { return }
         let now = uptime()
         wakeText = text; heardAt = now
+        guard wakeOn else { return } // clap to wake only: the phrase doesn't count
         let (rest, d, miss) = WakeWord.scan(text)
         guard let rest else { if let miss { wakeMiss = miss }; return }
         wakeLog("heard the phrase (distance \(d ?? 0))")
         wakeMiss = nil
         // Same mic, same recogniser: what follows the phrase is already the start of the take.
-        woke = true
-        phase = .handsFree
-        chordAt = now
-        best = rest
-        showListening("wake", now)
+        beginWokenTake(now, rest: rest)
+    }
+
+    /// Two claps heard on the mic (the audio thread found them). Like the phrase, but with a fresh recogniser, so words
+    /// heard before the claps aren't taken as the start of the request.
+    private func heardClaps() {
+        guard phase == .wake, clapsOn, !wakeHold else { return }
+        let now = uptime()
+        wakeLog("heard two claps")
+        logNearMiss()
+        phase = .handsFree // before the new recogniser: a take may use the full one, wake listening only the on-device one
+        guard freshRecognizer() else { phase = .wake; stopWake(); wakeRetryAt = now + 30; return }
+        wakeText = ""
+        beginWokenTake(now, rest: "")
     }
 
     // ---------- permissions ----------
@@ -925,10 +964,12 @@ final class Voice {
             if self.phase == .wake { self.phase = .idle; self.wakeRetryAt = uptime() + 30; wakeLog("couldn't start (\(code))") } else { emit(["type": "error", "code": code]); self.cancel() }
         }
         guard let r = makeRecognizer() else { return fail("unavailable") }
-        let gain = autoGain, feed = feed
+        let gain = autoGain, feed = feed, claps = ClapDetector()
         let ingest = { [weak self] (buffer: AVAudioPCMBuffer) in
             guard let samples = buffer.floatChannelData?[0] else { feed.append(buffer); return }
             let n = Int(buffer.frameLength)
+            // Claps are judged on the mic's own level, before the boost below changes the samples.
+            if claps.feed(samples, count: n, rate: buffer.format.sampleRate) > 0 { DispatchQueue.main.async { self?.heardClaps() } }
             var sum: Float = 0
             for i in 0 ..< n { sum += samples[i] * samples[i] }
             let rms = sqrt(sum / Float(max(n, 1)))
@@ -1128,6 +1169,59 @@ if args.contains("--test-wake") {
     check("Hey Jarvis", nil)
     exit(bad == 0 ? 0 : 1)
 }
+// --test-claps checks the double-clap detector on made-up sounds (clap.swift); exits 1 on a failure.
+if args.contains("--test-claps") {
+    var bad = 0
+    func check(_ name: String, _ got: Int, _ want: Int) { print("\(got == want ? "ok" : "FAIL") \(name) (\(got))"); if got != want { bad += 1 } }
+    func heard(rate: Double = 48000, secs: Double = 4, _ make: (ClapScene) -> Void) -> Int {
+        let s = ClapScene(rate: rate, secs: secs); make(s); return s.doubleClaps()
+    }
+    check("two claps", heard { $0.clap(1); $0.clap(1.35) }, 1)
+    check("two claps, fast", heard { $0.clap(1); $0.clap(1.18) }, 1)
+    check("two claps, slow", heard { $0.clap(1); $0.clap(1.7) }, 1)
+    check("two claps in an echoey room", heard { $0.clap(1, 0.6, reverb: 0.12); $0.clap(1.4, 0.6, reverb: 0.12) }, 1)
+    check("two softer claps", heard { $0.clap(1, 0.2); $0.clap(1.3, 0.25) }, 1)
+    check("two claps at 44.1 kHz", heard(rate: 44100) { $0.clap(1); $0.clap(1.3) }, 1)
+    check("two claps at 16 kHz", heard(rate: 16000) { $0.clap(1); $0.clap(1.3) }, 1)
+    check("two claps, then talking", heard { $0.clap(1); $0.clap(1.3); $0.speech(2.0, 3.8) }, 1)
+    check("two claps after talking stops", heard { $0.speech(0, 1.0); $0.clap(1.6); $0.clap(1.9) }, 1)
+    check("two claps with quiet talking around them", heard { $0.speech(0, 4, 0.02); $0.clap(1.5); $0.clap(1.8) }, 1)
+    check("two pairs, far apart", heard(secs: 6) { $0.clap(1); $0.clap(1.3); $0.clap(4); $0.clap(4.3) }, 2)
+    check("one clap", heard { $0.clap(1) }, 0)
+    check("three claps", heard { $0.clap(1); $0.clap(1.3); $0.clap(1.6) }, 0)
+    check("applause", heard { s in for k in 0 ..< 14 { s.clap(0.5 + Double(k) * 0.17) } }, 0)
+    check("claps too far apart", heard { $0.clap(1); $0.clap(2.1) }, 0)
+    check("claps too close (one clap with a flam)", heard { $0.clap(1); $0.clap(1.06) }, 0)
+    check("one loud, one faint", heard { $0.clap(1, 0.8); $0.clap(1.3, 0.08) }, 0)
+    check("far-off claps, too quiet", heard { $0.clap(1, 0.02); $0.clap(1.3, 0.02) }, 0)
+    check("talking", heard { $0.speech(0.2, 3.8) }, 0)
+    check("loud talking", heard { $0.speech(0.2, 3.8, 0.5) }, 0)
+    check("typing", heard { s in var t = 0.3; while t < 3.8 { s.tap(t); t += 0.09 + 0.12 * abs(s.rnd()) } }, 0)
+    check("two claps right after talking", heard { $0.speech(0, 1.0); $0.clap(1.1); $0.clap(1.4) }, 0)
+    check("two claps over loud talking", heard { $0.speech(0, 4, 0.3); $0.clap(1.5); $0.clap(1.8) }, 0)
+    check("silence", heard { _ in }, 0)
+    // Many random pairs, and random talking and typing: nearly every pair heard, nothing else.
+    var missed = 0, falseWakes = 0
+    let pick = ClapScene(rate: 8000, secs: 0, seed: 99)
+    func u(_ a: Double, _ b: Double) -> Double { a + (b - a) * (pick.rnd() + 1) / 2 }
+    for k in 0 ..< 150 {
+        let rate = [16000.0, 44100, 48000][k % 3]
+        let s = ClapScene(rate: rate, secs: 4, seed: UInt32(k + 7))
+        let t = u(0.6, 2), gap = u(0.18, 0.75), a = u(0.1, 0.8)
+        s.clap(t, a, reverb: u(0, 0.15)); s.clap(t + gap, a * u(0.6, 1.4), reverb: u(0, 0.15))
+        if s.doubleClaps(chunk: [256, 512, 1024, 4096][k % 4]) != 1 { missed += 1 }
+        let o = ClapScene(rate: rate, secs: 4, seed: UInt32(k + 1000))
+        switch k % 3 {
+        case 0: o.speech(0.1, 3.9, u(0.05, 0.6))
+        case 1: var tt = 0.2; while tt < 3.8 { o.tap(tt, u(0.1, 0.4)); tt += u(0.08, 0.25) }
+        default: o.speech(0.1, 3.9, u(0.1, 0.4)); o.clap(u(1, 2.5))
+        }
+        if o.doubleClaps() != 0 { falseWakes += 1 }
+    }
+    print("\(missed <= 6 ? "ok" : "FAIL") random pairs: \(missed) of 150 missed (at most 6)"); if missed > 6 { bad += 1 }
+    check("false wakes on random talking, typing and single claps", falseWakes, 0)
+    exit(bad == 0 ? 0 : 1)
+}
 // --test-snap checks which drawn paths count as a circled area; exits 1 on a failure.
 if args.contains("--test-snap") {
     var bad = 0
@@ -1234,7 +1328,7 @@ var signalSources: [DispatchSourceSignal] = []
 let voice = Voice()
 if args.contains("--no-mute") { OutputMute.enabled = false }
 if let i = args.firstIndex(of: "--chord"), i + 1 < args.count { voice.setChord(args[i + 1].components(separatedBy: ",")) }
-if LiveTest.url != nil { OutputMute.enabled = false; voice.setWake(true); LiveTest.start() }
+if LiveTest.url != nil { OutputMute.enabled = false; voice.setWake(true); voice.setClaps(true); LiveTest.start() }
 let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in voice.tick() }
 RunLoop.main.add(timer, forMode: .common)
 Thread.detachNewThread {
@@ -1252,6 +1346,7 @@ Thread.detachNewThread {
         case "watch_clicks": let on = msg["on"] as? Bool == true; DispatchQueue.main.async { voice.watchClicks = on }
         case "sound": if let on = msg["on"] as? Bool { DispatchQueue.main.async { SnapCue.soundOn = on } }
         case "wake": if let on = msg["on"] as? Bool { DispatchQueue.main.async { voice.setWake(on) } }
+        case "claps": if let on = msg["on"] as? Bool { DispatchQueue.main.async { voice.setClaps(on) } }
         // The name after "Hey" (empty: Roamies). Only whether it's custom is logged, never the word.
         case "wake_name":
             let word = msg["word"] as? String ?? ""

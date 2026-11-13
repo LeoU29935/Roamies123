@@ -29,7 +29,7 @@ voice, keeps track of what you said you'd do and nudges you when it's due.
 
 ## Why Roamies
 
-- **Talk, don't type.** Hold ⌃⌥ (Ctrl+Alt on Windows and Linux), say it, let go. On macOS and Windows, circle something with the cursor while you talk and it sees what you mean.
+- **Talk, don't type.** Hold ⌃⌥ (Ctrl+Alt on Windows and Linux), say it, let go. On macOS you can also turn on "Hey Roamies" or clap twice, hands-free. On macOS and Windows, circle something with the cursor while you talk and it sees what you mean.
 - **Or type.** Tap ⌥⌘ (Ctrl+Shift on Windows and Linux) and a small text field opens beside your cursor. Type, press Enter.
 - **It talks back.** Spoken replies in its own voice, with real feeling, through [Fish Audio](https://fish.audio), or in a Gemini voice you pick, with your own [Google AI Studio](https://aistudio.google.com/apikey) key (the one you already use for a Gemini model works).
 - **It remembers.** What you said you'd do, reminders down to the second (or on repeat: "every weekday at 9", "every 2 hours"), and what matters to you.
