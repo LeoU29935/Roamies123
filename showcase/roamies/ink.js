@@ -615,12 +615,24 @@
   async function card(m, w, h, inner, o = {}) {
     const full = h;
     h = Math.min(full, maxCardH());
-    // The size the assistant chose (draw's card_size): small or large opens zoomed (never past the screen), placed for
-    // that size; full opens, then goes full screen. The corner and the full-screen button work as always afterwards.
-    const S0 = scr(), fit = Math.max(1, Math.min((S0[2] - S0[0] - 32) / (w + 8), (S0[3] - S0[1] - 100) / (h + 14)));
-    const k = Math.min(m.card_size === 'small' ? 0.8 : m.card_size === 'large' ? 1.5 : 1, fit);
-    const [x, y] = roomFor(Math.round(w * k), Math.round(h * k), m.part), bar = o.bar === false ? 0 : 26;
-    const c = add({ z: 2, part: m.part, card: true, kind: m.kind, cw: 0, ch: 0, p: 0, done: 0, w, h, ox: x, oy: y, k, sy: 0, scrollMax: Math.max(0, full - h), color: tone(m.tone), live: o.live, box: () => [x - 4, y - 4, w + 8, h + 14],
+    // Deep explain: one big card at a time, zoomed to cover most of the screen and centred above the caption; the
+    // card before it goes as it comes. Otherwise the size the assistant chose (draw's card_size): small or large opens
+    // zoomed (never past the screen), placed for that size; full opens, then goes full screen.
+    const deep = deepParts.has(m.part);
+    let k = 1, x, y;
+    if (deep) {
+      const before = [...new Set(marks.filter((q) => q.alive && q.card && !q.local && !q.leaving && q.part !== m.part).map((q) => q.part))];
+      for (const id of before) { R.ink.send?.({ type: 'ink_closed', part: id }); fadeOut(partMarks(id), 0.35); }
+      const S = scr(), SW = S[2] - S[0], SH = S[3] - S[1] - 80;
+      k = Math.max(1, Math.min((SW * 0.86) / w, (SH * 0.94) / h, 2.6));
+      x = S[0] + (SW - w * k) / 2; y = S[1] + Math.max(8, (SH - h * k) / 2);
+    } else {
+      const S0 = scr(), fit = Math.max(1, Math.min((S0[2] - S0[0] - 32) / (w + 8), (S0[3] - S0[1] - 100) / (h + 14)));
+      k = Math.min(m.card_size === 'small' ? 0.8 : m.card_size === 'large' ? 1.5 : 1, fit);
+      [x, y] = roomFor(Math.round(w * k), Math.round(h * k), m.part);
+    }
+    const bar = o.bar === false ? 0 : 26;
+    const c = add({ z: 2, part: m.part, card: true, kind: m.kind, cw: 0, ch: 0, p: 0, done: 0, w, h, ox: x, oy: y, k, deep, sy: 0, scrollMax: Math.max(0, full - h), color: tone(m.tone), live: o.live, box: () => [x - 4, y - 4, w + 8, h + 14],
       draw(b, l, t) {
         if (this.cw < 4) return;
         chrome(b, x, y, this.cw, this.ch, { edge: o.edge ? colorOf(this, this.color) : ACC });
@@ -1867,6 +1879,7 @@
   async function runSeg(e, gen) {
     R.ink.send?.({ type: 'draw_started', id: e.id, seg: e.seg });
     if (e.fade) for (const b of e.beats ?? []) for (const m of b.marks) if (m.part) drawnBy.set(m.part, e.id);
+    if (e.deep) for (const b of e.beats ?? []) for (const m of b.marks) if (m.part) deepParts.add(m.part);
     if (e.win) winRect = locRect(e.win);
     if (e.busy?.length) busyRects = e.busy.map(locRect);
     for (const ed of e.edits ?? []) { if (gen !== G.gen) return; if (ed.do !== 'clear') { await take(); G.held = true; } await edit(ed); }
@@ -1900,6 +1913,7 @@
   // A drawing that goes by itself (the welcome tour): faded `sec` after it finishes, waiting while the pointer rests
   // on one of its pieces (they may be about to click a button).
   const drawnBy = new Map(); // part → drawing id, for drawings that fade by themselves
+  const deepParts = new Set(); // parts of a deep explanation: big cards, one at a time
   function fadeLater(id, sec) {
     const mine = () => marks.filter((m) => m.alive && drawnBy.get(m.part) === id);
     const tick = () => {

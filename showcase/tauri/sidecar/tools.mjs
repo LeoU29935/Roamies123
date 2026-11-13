@@ -638,12 +638,13 @@ export function createTools({ allowActions, ui, ask, openUrl, onCommitments, sho
         if (opts.fade) for (const p of ids) loose.add(p);
         // Only a few cards stay up at once (the overlay closes the oldest as each new one is drawn), so the oldest are
         // forgotten here too. Eight cards at once covered the screen, and the last one landed on top of the first.
-        else for (const p of parts.trimCards(LIMITS.cardsShown, (q) => loose.has(q) || pinned.has(q))) { shut.push(p); buttons.delete(p); }
+        // A deep explanation shows one big card at a time.
+        else for (const p of parts.trimCards(args.deep ? 1 : LIMITS.cardsShown, (q) => loose.has(q) || pinned.has(q))) { shut.push(p); buttons.delete(p); }
         for (const b of seg) for (const m of b.marks) if (m.action && m.part) buttons.set(m.part, m.action);
         for (const b of seg) for (const m of b.marks) if (m.kind === 'quiz' && m.part) quizzes.set(m.part, m);
         const out = seg.map((b, j) => ({ ...b, n: sg.from + j + 1, caption: plain(b.say), voiced: !!speak(b.say) }));
         said.push(...out.map((b) => b.caption));
-        ui({ kind: 'agent', e: { type: 'draw', id, seg: k, beats: out, edits: k ? [] : edits, last: k === segs.length - 1, win, busy: k ? [] : busy, ...(opts.fade ? { fade: opts.fade } : {}) } });
+        ui({ kind: 'agent', e: { type: 'draw', id, seg: k, beats: out, edits: k ? [] : edits, last: k === segs.length - 1, win, busy: k ? [] : busy, ...(opts.fade ? { fade: opts.fade } : {}), ...(args.deep ? { deep: true } : {}) } });
         // The first beat must show; later ones queue behind it on the overlay without holding this up.
         if (!k) {
           const started = await inkWait(`${id}:start:0`, 15_000, ctx?.signal);
@@ -663,7 +664,7 @@ export function createTools({ allowActions, ui, ask, openUrl, onCommitments, sho
     } finally { ink.active--; }
     if (windowBound()) { [ink.win, ink.page] = await Promise.all([frontWin(), frontPage()]); ink.front = ink.win?.key ?? ''; watchStale(); if (ink.win) watchClicks(true); }
     const list = describeParts(drawn);
-    if (shut.length) notes.push(`Only ${LIMITS.cardsShown} cards stay up at once, so the oldest closed as newer ones were drawn (${shut.join(', ')}).`);
+    if (shut.length) notes.push(args.deep ? `A deep explanation shows one card at a time, so each closed as the next came (${shut.join(', ')}); only the last is up now.` : `Only ${LIMITS.cardsShown} cards stay up at once, so the oldest closed as newer ones were drawn (${shut.join(', ')}).`);
     // The lines were already said (and captioned) as it drew. Said here, right before the reply is written, so the
     // reply doesn't say them again: models restated each step after a walkthrough even with the rule in the prompt.
     const spoken = said.filter(Boolean);
@@ -840,6 +841,7 @@ map (region: world, a continent, or country names with commas between; shade [{n
 math (steps [{tex, note}]) writes worked maths one step at a time. tex: one line of LaTeX per step (\\frac{a}{b}, \\sqrt{x}, x^{2}, x_{1}, \\left( \\right), \\text{words}, Greek, \\times \\cdot \\pm \\le \\ne \\approx \\pi \\infty; no \\begin, & or \\\\ line breaks); note: a few plain words on what changed. geometry (vertices [{id, x, y}] in your own units with y up, lines [{from, to, label, dash}], angles [{at, from, to, label}] with at the corner, circles [{at, r, label}]) for triangles, circles and angles.
 molecule (smiles, label) for chemistry. model (parts [{shape: box|sphere|cylinder|cone|torus, at [x,y,z], size [x,y,z], rot [deg x,y,z], tone, label, motion}] within about -1 to 1, title) for objects and machines. motion {do: spin|orbit|slide|pulse, axis: x|y|z, around [x,y,z], to [x,y,z], secs} makes a part move to show how the thing works: slide goes from at to "to" and back (a piston), orbit circles the point "around" (a planet, a crank pin), spin turns it in place (a round part spinning on its own axis looks still, so spin a box or orbit one round it), pulse swells and shrinks (a heart).
 quiz (questions [{text, options: 2 to 4, answer: the right option word for word, explain}], up to ${LIMITS.questions}) for "test me": they answer by clicking and see right or wrong at once, and their score comes to you with their next message, so say a line and stop: never ask the questions in words too, or ask them for their answers or score.
+Deep explanations: when they want to really understand something ("explain gene transcription in depth", "teach me how a jet engine works", "walk me through photosynthesis"), or the answer is a process with several stages, set deep: true. Each card then opens big in the middle of the screen and replaces the one before, so plan 4 to 10 beats with one card each that build on each other: the big picture first, then one stage or idea per card (flow, model, molecule, graph, timeline, table, math, photo with labels), then a short summary card. Each say line tells that part of the story; the cards show it. Not for quick answers.
 Actions: type (text into the field at; needs actions allowed), copy (text to the clipboard), open (url), handoff (task), button (text + action {do: ask|open|copy, value}: a likely next step they can click), emote (name: hype, wave, upset, remind, motivate), sfx (name). tone: accent, teal, amber, coral, lilac, sky, lime, red, white.
 A drawing stays until the user clears it or the window changes; your next drawing replaces it. At most ${LIMITS.cardsShown} cards show at once (one more closes the oldest), so make a point with the fewest cards. Every drawn piece gets an id (p1, p2 …) in the result. To change what's drawn ("make that red", "move it left", "never mind"): edit [{do: recolor|move|erase|clear, part, tone, dx, dy}] with no beats. Up to 12 beats, 40 marks each.${POINTER_OK ? '' : " On this desktop (Wayland) clicks and hovers in other apps can't be seen: never use wait; beats play one after another, so say each step's line in an order that reads well without pausing."}`,
       parameters: DrawArgs, executionMode: 'sequential', timeoutMs: 30 * 60_000,

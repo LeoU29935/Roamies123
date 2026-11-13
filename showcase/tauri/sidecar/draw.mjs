@@ -79,6 +79,7 @@ export const DrawArgs = z.object({
   target: z.string().optional(),
   beats: z.array(Beat).max(LIMITS.beats).optional(),
   edit: z.array(Edit).max(20).optional(),
+  deep: z.boolean().optional(),
 });
 
 const hasAt = (t) => !!t && (t.text != null || t.id != null || (t.x != null && t.y != null));
