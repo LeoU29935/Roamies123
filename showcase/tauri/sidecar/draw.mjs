@@ -55,6 +55,7 @@ const Mark = z.object({
   })).max(LIMITS.parts3d).optional(),
   nodes: z.array(z.object({ id: z.string().min(1).max(16), text: z.string().min(1).max(60), shape: z.enum(NODE_SHAPES).optional(), tone: z.enum(TONES).optional() })).max(LIMITS.nodes).optional(),
   links: z.array(z.object({ from: z.string().min(1).max(16), to: z.string().min(1).max(16), label: z.string().max(30).optional(), flow: z.boolean().optional() })).max(LIMITS.links).optional(),
+  flow: z.boolean().optional(), animate: z.boolean().optional(),
   columns: z.array(z.string().max(30)).max(LIMITS.columns).optional(),
   rows: z.array(z.array(z.string().max(80)).max(LIMITS.columns)).max(LIMITS.rows).optional(),
   bars: z.array(z.object({ label: z.string().min(1).max(30), value: num, tone: z.enum(TONES).optional() })).max(LIMITS.bars).optional(),

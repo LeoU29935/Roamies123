@@ -27,6 +27,7 @@ import {
   touchFacts, forDisk, forProvider, loadLatestSession, newSession, openCommitments, pruneSessions, readJson, saveSession, takeDueReminders, updateCommitment, writeJson,
 } from './store.mjs';
 import { foldInput, foldPrompt, memoryInput, memoryPrompt, oneShot, parseBrain, transcript } from './brain.mjs';
+import { saveCardImage } from './cardimage.mjs';
 import { EMOTES, EchoFilter, ReplyStream } from './reply.mjs';
 import { downloadModel, isReady, modelDir, sizeLabel, totalBytes } from './voicemodel.mjs';
 import { copyText, createTools, expand, fitImage, imageBlock, winOpen } from './tools.mjs';
@@ -2114,6 +2115,11 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.type === 'draw_done') { if (String(m.id) === showcase?.id) showcaseDrawn(); }
   else if (m.type === 'draw_wait_done') ink.waitDone(String(m.id), m.beat | 0, String(m.result));
   else if (m.type === 'ink_closed') ink.closed(m.part);
+  else if (m.type === 'card_image') {
+    // Save as image on a card: into Downloads (the overlay may have copied it to the clipboard too).
+    saveCardImage(m).then((file) => { logLine('card_image', { copied: !!m.copied }); say(`Saved it to ${path.basename(path.dirname(file))} as “${path.basename(file)}”${m.copied ? ', and copied it' : ''}.`, 'happy'); })
+      .catch((e) => { logLine('card_image', { error: String(e?.code ?? e?.message ?? e).slice(0, 60) }); say("I couldn't save that card as an image.", 'concerned'); });
+  }
   else if (m.type === 'ink_pinned') { ink.pinned(String(m.part), m.on === true); logLine('ink_pinned', { on: m.on === true }); } // a card kept on screen until its × (ink.js)
   else if (m.type === 'ink_action') onInkButton(String(m.part));
   else if (m.type === 'quiz_done') onQuizDone(String(m.part), Array.isArray(m.picks) ? m.picks.slice(0, 12).map((v) => (Number.isInteger(v) ? v : -1)) : []);
