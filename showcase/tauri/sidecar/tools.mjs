@@ -1049,5 +1049,12 @@ A drawing stays until the user clears it or the window changes; your next drawin
     const r = await runHands(['front'], { timeout: 900 }).catch(() => null);
     try { const f = JSON.parse(r?.stdout.trim().split('\n').pop() || '{}'); return f.app ? f : null; } catch { return null; }
   }
-  return { tools, hands, whereNow, frontNow, ink: inkEvents, nextTurn: () => ++turn };
+  // The front window's bounds ([x, y, w, h], screen points) for game mode, or null (no helper, no permission, too slow).
+  async function frontBounds() {
+    if (!HANDS) return null;
+    const r = await Promise.race([hands('locate', 'front').catch(() => null), new Promise((res) => setTimeout(() => res(null), 1500))]);
+    const b = r?.window?.bounds;
+    return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? b : null;
+  }
+  return { tools, hands, whereNow, frontNow, frontBounds, ink: inkEvents, nextTurn: () => ++turn };
 }

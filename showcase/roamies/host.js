@@ -476,6 +476,7 @@
     else if (m.kind === 'agent') onAgent(m.e);
     else if (m.kind === 'voice') onVoice(m);
     else if (m.kind === 'list') Roamie.ink?.reminders(m);
+    else if (m.kind === 'front_window') Roamie.sidebar?.front(m);
   };
 
   // ---------- Esc ----------

@@ -353,6 +353,7 @@
 
     // A new request (talking, typing, summoning): come over to the cursor if it's somewhere else now.
     const comeToCursor = () => {
+      if (R.sidebar?.on) return; // game mode: it stays in its panel
       const p = presence.ptr;
       if (!p || !visible() || pen.held || m.dragging || m.flung) return;
       if (station.byCursor && Math.hypot(p[0] - station.byCursor[0], p[1] - station.byCursor[1]) < k.R * 2.5) return;
@@ -369,6 +370,9 @@
     // Appear beside the cursor. With the cursor on another screen: at home, unless the cursor is there
     // now, then at the nearest spot that's clear of it.
     const spot = () => {
+      // Game mode (sidebar.js): at the top of the panel at the screen's edge, never beside a cursor that isn't there.
+      const dock = R.sidebar?.dock?.();
+      if (dock) { setStation(dock[0], dock[1]); station.atDock = true; return dock; }
       const near = besideCursor();
       if (near) { setStation(near[0], near[1], presence.ptr.slice()); station.quietUntil = now + 4; return near; }
       const [cx, cy] = presence.cursor ?? [null, null];
@@ -823,7 +827,7 @@
     const hitBubble = (bb, x, y) => bb && !bb.closing && x >= bb.x.x && x <= bb.x.x + bb.w.x && y >= bb.y.x && y <= bb.y.x + bb.h.x;
 
     // Back beside the cursor wherever it is now (they may have moved on meanwhile), else where it was when taken.
-    const penHome = () => (presence.ptr && besideCursor(fol.side < 0 ? 'left' : 'right', presence.ptr)) ?? pen.home ?? [m.x, m.y];
+    const penHome = () => R.sidebar?.dock?.() ?? (presence.ptr && besideCursor(fol.side < 0 ? 'left' : 'right', presence.ptr)) ?? pen.home ?? [m.x, m.y];
     // Working in another app (act_in_app): it turns into its cursor and blinks from spot to spot as the helper reports
     // them, then back beside the user's cursor. Held like a drawing's pen, so it no longer chases the real cursor when
     // a step borrows it. Clicks don't wait for it: when spots come faster than it hops, it skips to the newest one.
@@ -1174,6 +1178,10 @@
         if (k.presence === 'shown') {
           if (station.x == null) setStation(m.x, m.y);
           const held = m.dragging || m.flung;
+          // Game mode turned on while it's up: off to the panel at the screen's edge, once (it can still be dragged).
+          const dock = R.sidebar?.dock?.();
+          if (dock && !station.atDock && !held && !pen.held) { setStation(dock[0], dock[1]); m.goTo(dock[0], dock[1]); station.moving = true; station.atDock = true; }
+          else if (!dock && station.atDock) station.atDock = false;
           if (held && !station.held) station.from = [m.x, m.y];
           // Dropped somewhere new: that's home now, and the cursor gets a moment to move off.
           // A plain click (press without moving it) isn't a move.

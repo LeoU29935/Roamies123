@@ -574,7 +574,9 @@
   // to right); never on another card or a screen mark.
   let winRect = null;
   function place(w, h, part, strict = false) {
-    const S = scr(), top = S[1] + 12, bot = S[3] - 64; // room for the caption
+    // Game mode (sidebar.js): cards stack in the panel at the screen's right edge, below the Roamie.
+    const side = R.sidebar?.on ? R.sidebar : null;
+    const S = scr(), top = S[1] + (side ? side.top : 12), bot = S[3] - 64; // room for the caption
     // Cards keep a small gap from each other (their boxes already include the shadow), marks a bigger one. A card
     // that's fading out is no longer in the way.
     const panel = R.panel?.rect, up = marks.filter((m) => m.alive && m.card && !m.leaving);
@@ -584,6 +586,7 @@
     const overWin = !winRect || (!roomL && !roomR);
     const fits = (x) => x >= S[0] + 8 && x + w <= S[2] - 8 && (overWin || x >= winRect[0] + winRect[2] || x + w <= winRect[0]);
     const xs = [];
+    if (side) { const x = S[2] - Math.max(w, side.width - 32) / 2 - w / 2 - 16; for (let y = top; y + h <= bot; y += 12) { const r = [x, y, w, h]; if (!taken.some((q) => overlap(r, q) > 0)) return r; } if (!strict) return [x, top, w, h]; }
     if (roomL || overWin) xs.push(S[0] + 16);
     for (const b of up.map(markBox).sort((a, q) => a[0] - q[0])) { const x = b[0] + b[2] + 8; if (fits(x)) xs.push(x); }
     if (roomR) xs.push(winRect[0] + winRect[2] + 20);
@@ -2308,5 +2311,8 @@
     whenIdle: () => (G.playing || G.q.length ? new Promise((r) => G.idle.push(r)) : Promise.resolve()),
     // Where a card w × h would go now (the web answer card uses it, so it lines up with the drawn ones): [x, y, w, h].
     spot: (w, h) => place(w, h),
+    // A rect from the helpers (screen points) in this overlay's coordinates, for game mode (sidebar.js).
+    toLocal: (r) => locRect(r),
+    sidebarChanged: () => touch(0.5),
   };
 })();

@@ -366,7 +366,7 @@ const userName = (() => {
 // ---------- tools ----------
 // The open request's voice, if replies are spoken: draw's beat lines are said on it, in order with the reply.
 let turnVoice = null;
-const { tools, hands, whereNow, frontNow: frontData, ink, nextTurn } = createTools({
+const { tools, hands, whereNow, frontBounds, frontNow: frontData, ink, nextTurn } = createTools({
   focus: HANDS_OK ? { start: (m, t) => startFocus(m, t), stop: () => stopFocus() } : null,
   firedReminders: () => firedReminders,
   allowActions: () => config.allowActions, ui, ask, openUrl, userName,
@@ -1494,6 +1494,22 @@ function onUpdateStatus(m) {
   }
 }
 
+// ---------- game mode (roamies/sidebar.js) ----------
+// While a game fills the screen, the Roamie and its cards move to a panel at the screen's edge. macOS already knows when
+// a fullscreen game is in front (fullscreen.rs), so the overlay only needs the setting from here. On Windows, the front
+// window's bounds go to the overlay every few seconds (from the hands helper; nothing kept or logged). Not on Linux.
+let gameTicking = false;
+const WIN = process.platform === 'win32';
+async function gameModeTick() {
+  if (gameTicking) return;
+  gameTicking = true;
+  try {
+    const enabled = HANDS_OK && config.gameSidebar !== false;
+    ui({ kind: 'front_window', rect: enabled && WIN ? await frontBounds() : null, enabled });
+  } finally { gameTicking = false; }
+}
+if (HANDS_OK) setInterval(() => gameModeTick().catch(() => {}), WIN ? 3000 : 30_000);
+
 // ---------- memory sync (sync.mjs) ----------
 // With a sync folder set: a pass every minute, and a few seconds after a change here. A pass merges the other
 // computers' files into memory (only if nothing changed here meanwhile) and writes this computer's file.
@@ -1743,7 +1759,7 @@ function panelState() {
       on: !!config.voice, keys: HOTKEYS_OK ? talkSymbols() : null, ready: voiceReady(), mac: MAC, mute: config.muteWhileTalking !== false, autoListen: !!config.autoListen, snoozeListen: !!config.snoozeListen, wakeWord: !!config.wakeWord, wakeClaps: !!config.wakeClaps, wakeName: wakeName(config),
       download: NEEDS_MODEL && config.voice && !voiceReady() ? { status: voiceModel.status, pct: voiceModel.total ? Math.floor((voiceModel.done / voiceModel.total) * 100) : 0, size: sizeLabel() } : null,
     } : null,
-    sound: !!config.sound, actions: !!config.allowActions, sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error }, focus: HANDS_OK ? { until: focusBlock?.until ?? null, task: focusBlock?.task ?? '', list: distractionList(), custom: !!config.distractions } : null, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK },
+    sound: !!config.sound, actions: !!config.allowActions, gameMode: HANDS_OK ? config.gameSidebar !== false : null, sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error }, focus: HANDS_OK ? { until: focusBlock?.until ?? null, task: focusBlock?.task ?? '', list: distractionList(), custom: !!config.distractions } : null, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK },
     login: login.supported ? { on: login.on } : null,
     update: { available: update.available, installing: update.installing, checking: update.checking, result: update.result, page: update.page, done: update.done },
     intro: !!intro,
@@ -1923,6 +1939,7 @@ async function onMenu(id, via) {
   else if (id.startsWith('geminimodel:') && GEMINI_CHOICES.some((c) => c.id === id.slice(12))) {
     config.geminiModel = id.slice(12); saveConfig(); if (tts().id === 'gemini') speech.setModel(config.geminiModel); menu();
   }
+  else if (id === 'gamemode' && HANDS_OK) { config.gameSidebar = config.gameSidebar === false; saveConfig(); menu(); gameModeTick().catch(() => {}); }
   else if (id === 'syncsetup') {
     const hint = suggestFolders()[0] ?? '';
     const typed = await ask({ prompt: `Sync memory with your other computer: the path of a folder both computers sync (iCloud Drive, OneDrive, Dropbox, Google Drive)${hint ? `. Found: ${hint}` : ''}`, placeholder: hint || 'Folder path' });
