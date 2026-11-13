@@ -610,6 +610,9 @@
     return [
       group('Behavior', 'What I may do, and when I start.', null,
         toggle('Sound effects', null, state.sound, () => act('sound'), 'sound'),
+        state.sync ? el('div', { className: 'setting' },
+          el('span', {}, 'Sync memory', el('small', { title: state.sync.dir, textContent: !state.sync.dir ? 'Share reminders and memory with your other computer' : state.sync.error ? `Not syncing: ${state.sync.error}` : `Via ${state.sync.dir.split(/[\\/]/).filter(Boolean).pop()}${state.sync.at ? ` · ${new Date(state.sync.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}` })),
+          state.sync.dir ? link('Stop', () => act('syncstop'), { k: 'syncstop', aria: 'Stop syncing memory' }) : link('Set up', () => act('syncsetup'), { k: 'syncsetup', aria: 'Set up memory sync' })) : null,
         state.focus ? el('div', { className: 'setting' },
           el('span', {}, state.focus.until ? 'Focus block running' : 'Focus distractions',
             el('small', { textContent: state.focus.until ? `Until ${new Date(state.focus.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${state.focus.task ? ` · ${state.focus.task}` : ''}` : `Say “focus for 30 minutes”. I watch for: ${state.focus.list.slice(0, 4).join(', ')}${state.focus.list.length > 4 ? '…' : ''}` })),

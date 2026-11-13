@@ -455,6 +455,24 @@ export async function updateCommitment(id, { status, dueMs, repeat, keepSeries =
   return { ...c, advanced };
 }
 
+// ---------- sync (sync.mjs) ----------
+
+/** Commitments and facts as stored (a deep copy), plus the text the copy was made from, for applySynced. */
+export function syncSnapshot() {
+  const m = loadMemory(), basis = JSON.stringify({ commitments: m.commitments, facts: m.facts });
+  return { ...JSON.parse(basis), basis };
+}
+
+/** Replaces commitments and facts with a merged copy, unless memory changed since the snapshot (then false: the next
+ *  pass merges again) or this file belongs to a newer app. */
+export async function applySynced({ commitments, facts }, basis) {
+  const m = loadMemory();
+  if (memoryReadOnly || JSON.stringify({ commitments: m.commitments, facts: m.facts }) !== basis) return false;
+  m.commitments = commitments; m.facts = facts;
+  await saveMemory();
+  return true;
+}
+
 // ---------- facts (long-term memory about the user) ----------
 
 const FACT_CAP = 150;
